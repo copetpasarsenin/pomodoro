@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,7 +54,7 @@ func TestInputURLGithub(t *testing.T) {
 }
 
 func TestGTmetrixScraping(t *testing.T) {
-	url := "https://gtmetrix.com/reports/go-colly.org/q2juSxHU/"
+	url := "https://gtmetrix.com/reports/pomokit.github.io/y2pfdQLm/"
 	
 	// Tes scraper yang diperbaiki
 	performanceData, err := ScrapeGTmetrixData(url)
@@ -110,7 +111,7 @@ func CreateSampleReport(performanceData map[string]string, url string) string {
 
 func TestScrapeGTmetrixWithChromedp(t *testing.T) {
 	// URL GTmetrix untuk testing
-	url := "https://gtmetrix.com/reports/go-colly.org/q2juSxHU/"
+	url := "https://gtmetrix.com/reports/pomokit.github.io/3rZTXed1/"
 	
 	// Catatan: Kita bisa mengatur timeout, tapi fungsi ScrapeGTmetrixWithChromedp
 	// sudah memiliki timeout internal (60 detik)
@@ -158,4 +159,42 @@ func TestScrapeGTmetrixWithChromedp(t *testing.T) {
 	formattedReport := FormatGTmetrixReport(performanceData, url)
 	fmt.Println("\n📱 Contoh output WhatsApp:")
 	fmt.Println(formattedReport)
+}
+
+func TestExtractOriginalURL(t *testing.T) {
+	// URL GTmetrix yang ingin diuji
+	url := "https://gtmetrix.com/reports/pomokit.github.io/3rZTXed1/"
+	
+	fmt.Println("=== TESTING GTmetrix URL Extraction ===")
+	fmt.Println("Testing URL:", url)
+	
+	// Jalankan fungsi scraping
+	data, err := ScrapeGTmetrixData(url)
+	if err != nil {
+		t.Fatalf("Error scraping data: %v", err)
+	}
+	
+	// Periksa apakah data berisi OriginalURL
+	originalURL, exists := data["OriginalURL"]
+	if !exists {
+		t.Error("OriginalURL tidak ditemukan dalam data yang di-scrape")
+	} else {
+		fmt.Println("✅ Berhasil mendapatkan OriginalURL:", originalURL)
+	}
+	
+	// Pastikan URL mengandung path lengkap
+	if originalURL != "" && !strings.Contains(originalURL, "/pomodoro/") {
+		t.Errorf("URL tidak mengandung path yang diharapkan. Got: %s", originalURL)
+	}
+	
+	// Cetak semua data yang didapat
+	fmt.Println("\nSemua data yang didapat:")
+	for key, value := range data {
+		fmt.Printf("  - %s: %s\n", key, value)
+	}
+	
+	// Cetak contoh format laporan
+	fmt.Println("\nContoh format laporan:")
+	report := FormatGTmetrixReport(data, url)
+	fmt.Println(report)
 }

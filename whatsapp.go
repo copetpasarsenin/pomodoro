@@ -18,7 +18,7 @@ import (
 )
 
 // Version of the application
-var Version = "0.2.3"
+var Version = "0.2.4"
 
 func WhatsApp() {
 	dbLog := waLog.Stdout("Database", "ERROR", true)
