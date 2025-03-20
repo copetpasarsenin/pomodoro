@@ -73,6 +73,40 @@ func ScrapeGTmetrixWithChromedp(url string) (map[string]string, error) {
 		return nil, fmt.Errorf("error otomatisasi browser: %v", err)
 	}
 
+	// Deteksi apakah laporan kedaluwarsa
+	if hasExpiredIndicators(htmlContent) {
+		fmt.Println("⚠️ Terdeteksi laporan GTmetrix kedaluwarsa!")
+		return nil, fmt.Errorf("laporan GTmetrix sudah kedaluwarsa dan tidak dapat diakses. Silakan gunakan URL laporan GTmetrix yang masih berlaku")
+	}
+
+	// === TAMBAHAN BARU: Ambil URL asli website yang diuji ===
+	var originalURL string
+	_ = chromedp.Run(browserCtx,
+		// Coba ambil dari tag h2 > a.no-external yang biasanya berisi URL asli
+		chromedp.AttributeValue(`h2 > a.no-external`, "href", &originalURL, nil),
+	)
+
+	// Jika berhasil mendapatkan URL
+	if originalURL != "" {
+		// fmt.Println("  ✓ Berhasil mendapatkan URL asli website:", originalURL)
+		performanceData["OriginalURL"] = originalURL
+	}
+
+	// Jika URL belum didapat, coba dari meta description
+	if originalURL == "" {
+		var metaDesc string
+		_ = chromedp.Run(browserCtx,
+			chromedp.AttributeValue(`meta[name="description"]`, "content", &metaDesc, nil),
+		)
+		
+		// Ekstrak URL dari meta description
+		if strings.Contains(metaDesc, "Latest Performance Report for: ") {
+			originalURL = strings.TrimPrefix(metaDesc, "Latest Performance Report for: ")
+			// fmt.Println("  ✓ Berhasil mendapatkan URL asli website dari meta:", originalURL)
+			performanceData["OriginalURL"] = originalURL
+		}
+	}
+
 	// === PERBAIKAN UTAMA: Ambil meta tags property og:description ===
 	var metaOGDescription string
 	_ = chromedp.Run(browserCtx,
@@ -342,6 +376,17 @@ func ScrapeGTmetrixData(url string) (map[string]string, error) {
 		Delay:       10 * time.Second,
 	})
 
+	// Flag untuk mendeteksi laporan kedaluwarsa
+	reportExpired := false
+
+	// Deteksi laporan kedaluwarsa
+	c.OnHTML("body", func(e *colly.HTMLElement) {
+		htmlContent := e.Text
+		if hasExpiredIndicators(htmlContent) {
+			reportExpired = true
+		}
+	})
+
 	// Error handling dengan retry
 	retryCount := 0
 	maxRetries := 2
@@ -365,6 +410,49 @@ func ScrapeGTmetrixData(url string) (map[string]string, error) {
 			collyFailed = true
 		}
 	})
+
+	// ============== TAMBAHKAN PENGAMBILAN URL ASLI ==============
+	// Ambil URL asli dari title atau meta description
+	c.OnHTML("title", func(e *colly.HTMLElement) {
+		title := e.Text
+		if strings.Contains(title, "Latest Performance Report for:") {
+			// Format: "Latest Performance Report for: https://pomokit.github.io/pomodoro/ | GTmetrix"
+			parts := strings.Split(title, "Latest Performance Report for:")
+			if len(parts) > 1 {
+				urlPart := strings.Split(parts[1], "|")[0]
+				urlPart = strings.TrimSpace(urlPart)
+				if urlPart != "" {
+					// fmt.Println("✅ Berhasil mendapatkan URL asli dari title:", urlPart)
+					performanceData["OriginalURL"] = urlPart
+				}
+			}
+		}
+	})
+
+	c.OnHTML("meta[name='description']", func(e *colly.HTMLElement) {
+		content := e.Attr("content")
+		// fmt.Println("Found meta description:", content)
+		
+		// Check if it contains a URL
+		if strings.Contains(content, "Latest Performance Report for:") {
+			urlPart := strings.TrimPrefix(content, "Latest Performance Report for: ")
+			urlPart = strings.TrimSpace(urlPart)
+			if urlPart != "" {
+				// fmt.Println("✅ Berhasil mendapatkan URL asli dari meta description:", urlPart)
+				performanceData["OriginalURL"] = urlPart
+			}
+		}
+	})
+
+	// Try to find the URL directly from the h2 link which usually contains the tested URL
+	c.OnHTML("h2 a.no-external", func(e *colly.HTMLElement) {
+		urlLink := e.Attr("href")
+		if urlLink != "" {
+			// fmt.Println("✅ Berhasil mendapatkan URL asli dari link:", urlLink)
+			performanceData["OriginalURL"] = urlLink
+		}
+	})
+	// ============== END PENGAMBILAN URL ASLI ==============
 
 	// ============== PARSING LOGIC ASLI ==============
 	c.OnHTML("meta[property='og:description']", func(e *colly.HTMLElement) {
@@ -451,6 +539,11 @@ func ScrapeGTmetrixData(url string) (map[string]string, error) {
 	}
 
 	c.Wait()
+
+	// Cek apakah laporan kedaluwarsa terdeteksi
+	if reportExpired {
+		return nil, fmt.Errorf("laporan GTmetrix sudah kedaluwarsa dan tidak dapat diakses. Silakan gunakan URL laporan GTmetrix yang masih berlaku")
+	}
 
 	// Jika Colly gagal atau performanceData kurang dari 3 item, coba dengan Chromedp
 	if collyFailed || len(performanceData) < 3 {
@@ -594,12 +687,18 @@ func FormatGTmetrixReport(data map[string]string, url string) string {
 
 	report := "\n\n*Rekap Data GTmetrix*"
 
-	// Tambahkan URL yang dianalisis
-	urlParts := strings.Split(url, "/reports/")
-	if len(urlParts) > 1 {
-		domainParts := strings.Split(urlParts[1], "/")
-		if len(domainParts) > 0 {
-			report += "\nWebsite: " + domainParts[0]
+	// Tambahkan URL yang dianalisis - KODE YANG DIMODIFIKASI
+	if originalURL, exists := data["OriginalURL"]; exists {
+		// Gunakan URL asli dari hasil scraping jika tersedia
+		report += "\nWebsite: " + originalURL
+	} else {
+		// Fallback ke metode lama jika tidak menemukan OriginalURL
+		urlParts := strings.Split(url, "/reports/")
+		if len(urlParts) > 1 {
+			domainParts := strings.Split(urlParts[1], "/")
+			if len(domainParts) > 0 {
+				report += "\nWebsite: " + domainParts[0]
+			}
 		}
 	}
 
@@ -645,4 +744,22 @@ func FormatGTmetrixReport(data map[string]string, url string) string {
 	}
 
 	return report
+}
+
+func hasExpiredIndicators(htmlContent string) bool {
+	expiredIndicators := []string{
+		"This report is expired",
+		"report-truncated-placeholder",
+		"filter-blur",
+		"pending purge",
+		"expired and pending purge",
+	}
+	
+	for _, indicator := range expiredIndicators {
+		if strings.Contains(htmlContent, indicator) {
+			return true
+		}
+	}
+	
+	return false
 }
