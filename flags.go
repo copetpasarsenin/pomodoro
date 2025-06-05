@@ -16,8 +16,8 @@ import (
 const InfoImageURL = "https://pomokit.github.io/pomodoro/information.png"
 const WarningImageURL = "https://pomokit.github.io/pomodoro/warning.png"
 
-const defaultDuration = 25 * time.Minute
-const defaultBreakDuration = 5 * time.Minute
+const defaultDuration = 1 * time.Minute
+const defaultBreakDuration = 1 * time.Minute
 
 var WAclient *whatsmeow.Client
 
